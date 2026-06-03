@@ -14,6 +14,8 @@
 #include "uart.h"
 #include "gpio-ctr.h"
 #include "modbus_test.h"
+#include "w25qxx.h"
+#include "fs_storage.h"
 
 
 
@@ -45,6 +47,27 @@ int main(void)
 	{
 		printk("ERR: modbus init failed\n");
 		return 1;
+	}
+
+	/* 初始化 W25Q16 SPI NOR Flash */
+	ret = w25qxx_init();
+	if (ret < 0) {
+		printk("ERR: w25qxx init failed\n");
+		return 1;
+	}
+	/* w25qxx_test() 保留作学习记录，不再自动调用 */
+	/* ret = w25qxx_test(); */
+
+	/* 初始化文件系统（LittleFS 自动挂载检查） */
+	ret = fs_storage_init();
+	if (ret < 0) {
+		printk("ERR: fs_storage init failed\n");
+		return 1;
+	}
+	/* 运行文件系统读写测试 */
+	ret = fs_storage_test();
+	if (ret < 0) {
+		printk("ERR: fs_storage test failed\n");
 	}
 
 

@@ -11,5 +11,7 @@ target_sources(app PRIVATE src/adc.c)
 target_sources(app PRIVATE src/uart.c)
 target_sources(app PRIVATE src/gpio-ctr.c)
 target_sources(app PRIVATE src/modbus_test.c)
+target_sources(app PRIVATE src/w25qxx.c)
+target_sources(app PRIVATE src/fs_storage.c)
 
 
