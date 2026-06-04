@@ -292,9 +292,11 @@ static void modbus_client_thread(void *p1, void *p2, void *p3)
  *   K_THREAD_DEFINE  → 编译时静态定义, 无需手动分配栈内存
  *   k_thread_create  → 运行时动态创建, 需要提供栈数组
  */
-K_THREAD_DEFINE(modbus_client_tid, 1024,
-		modbus_client_thread, NULL, NULL, NULL,
-		7, 0, 0);
+
+//modbus线程 --测试
+//bus_client_tid, 1024,
+//nt_thread, NULL, NULL, NULL,
+//
 
 int init_modbus_test(void)
 {

@@ -16,6 +16,7 @@
 #include "modbus_test.h"
 #include "w25qxx.h"
 #include "fs_storage.h"
+#include "sys_param.h"
 
 
 
@@ -70,6 +71,18 @@ int main(void)
 		printk("ERR: fs_storage test failed\n");
 	}
 
+	/* 初始化参数系统（依赖 LittleFS 已挂载） */
+	ret = sys_param_init();
+	if (ret < 0) {
+		printk("ERR: sys_param init failed\n");
+		return 1;
+	}
+	/* 运行参数系统测试 */
+	//t = sys_param_test();
+	// (ret < 0) {
+	//	printk("ERR: sys_param test failed\n");
+	//
+
 
 	printk("=== Zephyr Hello World ===\n");
 	printk("Board: %s\n", CONFIG_BOARD);
@@ -120,7 +133,7 @@ int main(void)
 		{
 			uart_cnt++;
 			sprintf(uart_msg, "Hello, UART!\t%d", uart_cnt);
-			uart3_tx_async((const uint8_t *)uart_msg, strlen(uart_msg));
+			//uart3_tx_async((const uint8_t *)uart_msg, strlen(uart_msg));
 			
 		}
 
