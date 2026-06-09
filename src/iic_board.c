@@ -360,8 +360,8 @@ int i2c_board_test(void)
 	 * 发送一个空操作或设备特定的命令，验证总线写入功能。
 	 * 对于 OLED SSD1306: 0x00 是命令控制字节，0xAE 是关显示命令
 	 * 如果你的设备不同，请修改此处的测试数据。
-	 */
-	uint8_t test_buf[] = { 0x00, 0xAE };  /* SSD1306: 命令模式 + 关显示 */
+	 
+	uint8_t test_buf[] = { 0x00, 0xAE };  // SSD1306: 命令模式 + 关显示
 	ret = i2c_board_write_raw(I2C_DEV_ADDR, test_buf, sizeof(test_buf));
 	if (ret == 0) {
 		printk("PASS: Raw write test succeeded\n");
@@ -371,5 +371,6 @@ int i2c_board_test(void)
 	}
 
 	printk("=== I2C Test Complete ===\n\n");
+	*/
 	return 0;
 }

@@ -15,5 +15,6 @@ target_sources(app PRIVATE src/w25qxx.c)
 target_sources(app PRIVATE src/fs_storage.c)
 target_sources(app PRIVATE src/sys_param.c)
 target_sources(app PRIVATE src/iic_board.c)
+target_sources(app PRIVATE src/oled1306.c)
 
 

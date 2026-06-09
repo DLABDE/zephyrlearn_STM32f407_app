@@ -18,6 +18,7 @@
 #include "fs_storage.h"
 #include "sys_param.h"
 #include "iic_board.h"
+#include "oled1306.h"
 
 
 
@@ -83,6 +84,13 @@ int main(void)
 	ret = i2c_board_test();
 	if (ret < 0) {
 		printk("ERR: i2c board test failed\n");
+	}
+		
+
+	/* 初始化 OLED 显示屏并运行测试 */
+	ret = oled_test();
+	if (ret < 0) {
+		printk("ERR: oled test failed\n");
 	}
 	/* 运行参数系统测试 */
 	//t = sys_param_test();
