@@ -17,6 +17,7 @@
 #include "w25qxx.h"
 #include "fs_storage.h"
 #include "sys_param.h"
+#include "iic_board.h"
 
 
 
@@ -76,6 +77,12 @@ int main(void)
 	if (ret < 0) {
 		printk("ERR: sys_param init failed\n");
 		return 1;
+	}
+
+	/* 初始化 I2C1 总线并运行测试 */
+	ret = i2c_board_test();
+	if (ret < 0) {
+		printk("ERR: i2c board test failed\n");
 	}
 	/* 运行参数系统测试 */
 	//t = sys_param_test();
