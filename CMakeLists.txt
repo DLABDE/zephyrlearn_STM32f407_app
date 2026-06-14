@@ -12,6 +12,7 @@ target_include_directories(app PRIVATE src/modbus)
 target_sources(app PRIVATE src/main.c)
 
 target_sources(app PRIVATE src/driver/adc.c)
+target_sources(app PRIVATE src/driver/can_driver.c)
 target_sources(app PRIVATE src/driver/fs_storage.c)
 target_sources(app PRIVATE src/driver/iic_board.c)
 target_sources(app PRIVATE src/driver/modbus_driver.c)

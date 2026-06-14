@@ -13,6 +13,7 @@
 #include "adc.h"
 #include "uart.h"
 #include "gpio-ctr.h"
+#include "can_driver.h"
 #include "modbus_driver.h"
 #include "modbus_ser_a.h"
 #include "modbus_cli_a.h"
@@ -34,6 +35,12 @@ static int board_init(void)
 	ret = adc_init();
 	if (ret < 0) {
 		printk("ERR: adc init failed\n");
+		return 1;
+	}
+
+	ret = can_drv_init_all();
+	if (ret < 0) {
+		printk("ERR: can_drv_init_all failed\n");
 		return 1;
 	}
 
@@ -163,6 +170,7 @@ int main(void)
 	int ret;
 	static int cnt = 0;
 	static int uart_cnt = 0;
+	static uint8_t rec_can_flag = 0;
 	char uart_msg[128];
 
 	ret = board_init();
@@ -243,6 +251,31 @@ int main(void)
 			}
 		}
 
+		if (cnt % 1000 == 0 || rec_can_flag) {
+			struct can_frame frame = {0};
+			frame.flags = CAN_FRAME_IDE;
+			frame.id = 0x123;
+			frame.dlc = 8;
+			frame.data[0] = 0xF1;
+			frame.data[1] = 0x22;
+			frame.data[2] = 0x33;
+			frame.data[3] = 0x44;
+			frame.data[4] = 0x55;
+			frame.data[5] = 0x66;
+			frame.data[6] = 0x77;
+			frame.data[7] = 0x88;
+			//非阻塞发送帧 (K_NO_WAIT)
+			can_drv_send(CAN_DEV_CAN1, &frame, K_NO_WAIT);
+			rec_can_flag = 0;
+		}
+
+		//非阻塞检查是否有收到的帧 (K_NO_WAIT)
+		struct can_frame frame;
+		if (can_drv_recv(CAN_DEV_CAN1, &frame, K_NO_WAIT) == 0) {
+			rec_can_flag = 1;
+			/printk("[CAN1] RX: ID=0x%08X, DLC=%d, Data=[%02X %02X %02X %02X %02X %02X %02X %02X]\n",
+			/       frame.id, frame.dlc, frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
+		}
 
 		/* 串口测试，已经用作modbus通信，这里注释掉（二选一）
 		if(cnt % 8 == 0)

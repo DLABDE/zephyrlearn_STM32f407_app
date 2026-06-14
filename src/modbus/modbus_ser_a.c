@@ -72,7 +72,7 @@ static int holding_reg_rd(uint16_t addr, uint16_t *reg)
 		return -ENOTSUP;
 	}
 	*reg = holding_regs[addr];
-	LOG_INF("ServerA: holding reg read addr=%u val=%u", addr, *reg);
+	//LOG_INF("ServerA: holding reg read addr=%u val=%u", addr, *reg);
 	return 0;
 }
 
