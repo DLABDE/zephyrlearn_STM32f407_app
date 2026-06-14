@@ -273,8 +273,8 @@ int main(void)
 		struct can_frame frame;
 		if (can_drv_recv(CAN_DEV_CAN1, &frame, K_NO_WAIT) == 0) {
 			rec_can_flag = 1;
-			/printk("[CAN1] RX: ID=0x%08X, DLC=%d, Data=[%02X %02X %02X %02X %02X %02X %02X %02X]\n",
-			/       frame.id, frame.dlc, frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
+			printk("[CAN1] RX: ID=0x%08X, DLC=%d, Data=[%02X %02X %02X %02X %02X %02X %02X %02X]\n",
+			       frame.id, frame.dlc, frame.data[0], frame.data[1], frame.data[2], frame.data[3], frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
 		}
 
 		/* 串口测试，已经用作modbus通信，这里注释掉（二选一）
