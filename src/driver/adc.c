@@ -402,6 +402,5 @@ int adc_init(void)
 		return ret;
 	}
 
-	printk("adc_init (CH1+CH2+CH16_temp)\n");
 	return 0;
 }

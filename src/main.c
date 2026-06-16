@@ -38,6 +38,34 @@ static int board_init(void)
 		return 1;
 	}
 
+	/* 初始化文件系统（LittleFS 自动挂载检查） */
+	ret = fs_storage_init();
+	if (ret < 0) {
+		printk("ERR: fs_storage init failed\n");
+		return 1;
+	}
+
+	/* 运行文件系统读写测试 
+	ret = fs_storage_test();
+	if (ret < 0) {
+		printk("ERR: fs_storage test failed\n");
+	}
+	*/
+
+	/* 初始化参数系统（依赖 LittleFS 已挂载） */
+	ret = sys_param_init();
+	if (ret < 0) {
+		printk("ERR: sys_param init failed\n");
+		return 1;
+	}
+
+	/* 运行参数系统测试 
+	ret = sys_param_test();
+	if (ret < 0) {
+		printk("ERR: sys_param test failed\n");
+	}
+	*/
+
 	ret = can_drv_init_all();
 	if (ret < 0) {
 		printk("ERR: can_drv_init_all failed\n");
@@ -75,34 +103,6 @@ static int board_init(void)
 		return 1;
 	}
 	/* w25qxx_test(); */
-
-	/* 初始化文件系统（LittleFS 自动挂载检查） */
-	ret = fs_storage_init();
-	if (ret < 0) {
-		printk("ERR: fs_storage init failed\n");
-		return 1;
-	}
-
-	/* 运行文件系统读写测试 
-	ret = fs_storage_test();
-	if (ret < 0) {
-		printk("ERR: fs_storage test failed\n");
-	}
-	*/
-
-	/* 初始化参数系统（依赖 LittleFS 已挂载） */
-	ret = sys_param_init();
-	if (ret < 0) {
-		printk("ERR: sys_param init failed\n");
-		return 1;
-	}
-
-	/* 运行参数系统测试 
-	ret = sys_param_test();
-	if (ret < 0) {
-		printk("ERR: sys_param test failed\n");
-	}
-	*/
 	
 	/* 初始化 I2C1 总线并运行测试 */
 	ret = i2c_board_test();
@@ -135,19 +135,15 @@ static int board_init(void)
  * 可通过 k_thread_stack_space_get() 运行时查看剩余栈空间
  */
 #define LED_THREAD_STACK_SIZE 1024
-
 /* 线程优先级：5（协作式，不会抢占其他协作式线程） */
 #define LED_THREAD_PRIORITY   5
-
 /* 静态分配线程栈
  * K_THREAD_STACK_DEFINE 会处理 Zephyr 要求的栈对齐（通常 32 字节对齐）
  * 不能用普通数组代替，否则可能导致栈溢出或对齐异常
  */
 K_THREAD_STACK_DEFINE(led_thread_stack, LED_THREAD_STACK_SIZE);
-
 /* 线程结构体 — 内核通过此结构体管理线程状态、优先级、栈指针等 */
 static struct k_thread led_thread_data;
-
 /* 线程入口函数
  * Zephyr 线程入口函数固定签名为 void func(void *p1, void *p2, void *p3)
  * 三个 void* 参数通过 k_thread_create() 的 p1/p2/p3 传入
