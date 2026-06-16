@@ -557,11 +557,35 @@ int sys_param_init(void)
 						  sizeof(int32_t));
 			}
 		} else {
-			/* 键不存在或读取失败，使用默认值 */
+			/*
+			 * 键不存在或读取失败，使用默认值并持久化
+			 *
+			 * 当参数文件不存在时（首次启动、OTA升级后、
+			 * 文件系统损坏），仅设置内存默认值是不够的 ——
+			 * 下次启动 Settings File 后端仍会因文件缺失而
+			 * 报告 "file open error"。
+			 *
+			 * 主动调用 settings_save_one 可以：
+			 *   1. 创建 Settings 文件（内部 fs_open 带
+			 *      FS_O_CREATE 标志，自动新建文件）
+			 *   2. 持久化默认值，下次启动直接读取成功
+			 *   3. 即使保存失败也不影响系统运行
+			 *      （内存默认值已生效，下次启动重试）
+			 *
+			 * 注意：settings_save_one 内部会检查重复值，
+			 * 首次写入时文件不存在，会直接创建并写入。
+			 */
 			param_values[i] = param_items[i].default_val;
 			LOG_INF("Param [%d] %s not found, using default %d",
 				i, param_items[i].name,
 				param_items[i].default_val);
+			rc = settings_save_one(key,
+					      &param_items[i].default_val,
+					      sizeof(int32_t));
+			if (rc != 0) {
+				LOG_WRN("Save default for [%d] %s failed: %d",
+					i, param_items[i].name, rc);
+			}
 		}
 	}
 
