@@ -105,11 +105,7 @@ static int board_init(void)
 	/* w25qxx_test(); */
 	
 	/*
-	 * 初始化 I2C1 总线并运行测试
-	 *
-	 * I2C 总线测试失败（如总线上无设备）不应阻止系统启动，
-	 * 因为 OLED 是可选的外围显示设备，系统核心功能
-	 * （CAN、Modbus、ADC 等）不依赖 OLED。
+	 * 初始化 I2C1 总线
 	 */
 	ret = i2c_board_test();
 	if (ret < 0) {
@@ -118,16 +114,6 @@ static int board_init(void)
 
 	/*
 	 * OLED SSD1306 显示测试
-	 *
-	 * OLED 作为可选外设，初始化失败不应导致系统死机。
-	 *
-	 * 常见失败原因：
-	 *   - 显示屏未连接或接触不良
-	 *   - I2C 总线通信异常
-	 *   - SSD1306 驱动在 POST_KERNEL 阶段初始化失败
-	 *
-	 * 失败时系统会继续正常运行，仅丢失显示功能，
-	 * 核心采集与控制逻辑不受影响。
 	 */
 	ret = oled_test();
 	if (ret < 0) {
@@ -142,9 +128,6 @@ static int board_init(void)
 	 * R0 寄存器会残留上次函数调用的结果，导致 main() 收到一个随机的
 	 * 返回值。例如当 oled_test() 返回 -19 (-ENODEV) 时，-19 会留在 R0
 	 * 中被 main() 误判为 board_init() 失败，执行 return 1 使系统空闲。
-	 *
-	 * 这就是 OLED 拔出后系统"死机"的根因——不是真死机，
-	 * 而是 main() 因错误的返回值提前退出了。
 	 */
 	return 0;
 }
