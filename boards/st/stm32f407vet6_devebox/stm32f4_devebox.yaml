@@ -1,0 +1,16 @@
+identifier: stm32f4_devebox
+name: ST STM32F4 DevEBox
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 128
+flash: 1024
+supported:
+  - counter
+  - gpio
+  - uart
+  - pwm
+  - adc
+vendor: st

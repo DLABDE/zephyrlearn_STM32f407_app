@@ -1,0 +1,741 @@
+/*
+ * Copyright (c) 2017 Linaro Limited
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+#include <st/f4/stm32f407Xg.dtsi>
+#include <st/f4/stm32f407v(e-g)tx-pinctrl.dtsi>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/dma/stm32_dma.h>
+
+/ {
+	model = "STMicroelectronics STM32F4VET6 board";
+	compatible = "st,stm32f4devbox";
+
+	/*
+	 * chosen 节点: Zephyr 系统的运行时配置参数
+	 *
+	 * Q: 最少需要指定哪些参数？
+	 *
+	 * A: 严格来说没有"最少"，但一个能正常启动的 Zephyr 应用至少需要:
+	 *    zephyr,sram  — 告诉内核 SRAM 的起始地址和大小（用于内存管理）
+	 *    zephyr,flash — 告诉内核 Flash 的起始地址和大小（用于代码定位）
+	 *
+	 *    zephyr,console  是可选的，但没它就没有串口输出。
+	 *    zephyr,shell-uart 也是可选的，只有用 shell 子系统时才需要。
+	 *
+	 *    常用 chosen 属性一览:
+	 *    zephyr,sram        — RAM 节点，内核堆和线程栈从这里分配
+	 *    zephyr,flash       — Flash 节点，代码和只读数据存放位置
+	 *    zephyr,console     — 默认控制台设备（printk 输出目标）
+	 *    zephyr,shell-uart  — Shell 子系统使用的 UART
+	 *    zephyr,uart-pipe   — 远程 shell 管道用的 UART
+	 *    zephyr,code-partition  — 代码烧录的分区
+	 *    zephyr,dtcm / zephyr,itcm — TCM 内存（Cortex-M7 等）
+	 */
+	chosen {
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;//指定代码烧录的分区
+		zephyr,display = &ssd1306;               //默认显示设备（Display API / LVGL 使用）
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		/*
+		 * 设备树节点定义语法:  label: node-name { ... };
+		 *
+		 *   label     (冒号左边): 节点标签，用于被 & 引用，如 &led0
+		 *   node-name (冒号右边): 节点名称，是节点在设备树路径中的名称
+		 *
+		 * 【易错点】aliases 中 & 引用的是 label，不是 node-name！
+		 *
+		 *   正确: led0: led_0 { ... };  aliases { led0 = &led0; }
+		 *   错误: led0: led_0 { ... };  aliases { led0 = &led_0; }  ← 编译报错！
+		 *
+		 * 因为 &led_0 试图引用名为 "led_0" 的标签，但标签是 "led0"。
+		 * 报错信息: "devicetree error: /aliases: undefined node label 'led_0'"
+		 *
+		 * 【推荐写法】为避免混淆，建议 label 和 node-name 使用不同命名：
+		 *   green_led: led_0 { ... };   aliases { led0 = &green_led; }
+		 *   参考 stm32f4_disco 板卡的写法。
+		 */
+		led0: led_0 {
+			gpios = <&gpioa 6 GPIO_ACTIVE_LOW>;
+			label = "User LD1";
+		};
+
+		led1: led_1 {
+			gpios = <&gpioa 7 GPIO_ACTIVE_LOW>;
+			label = "User LD2";
+		};
+	};
+
+	pwmleds: pwmleds {
+		compatible = "pwm-leds";
+
+		pwm_led0: pwm_led_0 {
+		pwms = <&pwm3 1 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
+		/* &pwm3: 引用 timers3 的 pwm 子节点 */
+		/* 1: TIM3 通道 1 → PA6 */
+		/* PWM_MSEC(20): 周期 20ms = 50Hz，适合 LED 调光 */
+		};
+
+		pwm_led1: pwm_led_1 {
+		pwms = <&pwm3 2 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
+		/* 2: TIM3 通道 2 → PA7 */
+		};
+	};
+
+	gpio_keys: gpio_keys {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <30>;    /* 去抖时间 30ms */
+		user_button0: button0 {
+			label = "Key0";
+			gpios = <&gpioe 4 GPIO_ACTIVE_LOW>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+
+		user_button1: button1 {
+			label = "Key1";
+			gpios = <&gpioe 3 GPIO_ACTIVE_LOW>;
+			zephyr,code = <INPUT_KEY_1>;
+		};
+
+	};
+
+	longpress: longpress {
+		compatible = "zephyr,input-longpress";
+		input = <&gpio_keys>;                              /* 监听哪个设备，不填则监听所有 */
+		input-codes = <INPUT_KEY_0>, <INPUT_KEY_1>;        /* 要检测的按键码 */
+		short-codes = <INPUT_KEY_A>, <INPUT_KEY_B>;        /* 短按时输出的码 */
+		long-codes = <INPUT_KEY_X>, <INPUT_KEY_Y>;         /* 长按时输出的码 */
+		long-delay-ms = <2000>;                             /* 超过此时间算长按 */
+	};
+
+	/*
+	 * aliases 节点: 为节点创建别名，供 C 代码通过 DT_ALIAS() 宏引用。
+	 *
+	 * 例如: #define LED0_NODE DT_ALIAS(led0)
+	 *       会解析到 aliases 中的 led0 = &led0，进而找到 leds/led_0 节点。
+	 *
+	 * Zephyr 常用别名约定:
+	 *   led0, led1, led2, ...   → LED 指示灯
+	 *   sw0, sw1, sw2, ...      → 按键开关
+	 *   bt0, bt1, ...           → 按键（另一种命名）
+	 *   volt-sensor0, ...       → 电压传感器
+	 *   die-temp0, ...          → 芯片温度传感器
+	 */
+	aliases {
+		led0 = &led0;
+		led1 = &led1;
+		pwm-led0 = &pwm_led0;
+		pwm-led1 = &pwm_led1;
+		bt0 = &user_button0;
+		bt1 = &user_button1;
+		adc1 = &adc1;
+		volt-sensor0 = &vref;
+	};
+};
+
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/*
+		 * STM32F407VET6 内部 flash: 512KB
+		 *
+		 * 扇区布局（最小擦除单位 = 整个扇区）:
+		 * Sector 0: 0x00000000, 16KB
+		 * Sector 1: 0x00004000, 16KB
+		 * Sector 2: 0x00008000, 16KB
+		 * Sector 3: 0x0000C000, 16KB
+		 * Sector 4: 0x00010000, 64KB
+		 * Sector 5: 0x00020000, 128KB
+		 * Sector 6: 0x00040000, 128KB
+		 * Sector 7: 0x00060000, 128KB
+		 *
+		 * MCUboot 分区规划（Overwrite 模式 + 外部 flash slot1）:
+		 *   mcuboot  : 48KB   — 引导加载程序（Sector 0~2）
+		 *   image-0  : 464KB  — 主应用固件（Sector 3~7）
+		 *   image-1  : 512KB  — 升级固件暂存（W25Q16 外部 flash）
+		 *
+		 * Overwrite 模式说明:
+		 *   升级时 MCUboot 从外部 flash 的 slot1 读取镜像，
+		 *   覆写到内部 flash 的 slot0，无需 scratch 分区。
+		 *   优点: 内部 flash 空间最大化（464KB vs 旧方案 208KB）
+		 *   缺点: 升级中断无法回滚（需确保升级过程完整）
+		 *   配置: MCUboot 需启用 CONFIG_BOOT_UPGRADE_ONLY=y
+		 *
+		 * 跨设备 flash 工作原理:
+		 *   Zephyr flash_map 为每个分区生成 flash_area 结构体，
+		 *   其中 fa_dev 指向对应的 flash 驱动设备:
+		 *     slot0 (内部 flash) → fa_dev = SOC_FLASH_STM32 驱动
+		 *     slot1 (W25Q16)     → fa_dev = SPI_NOR 驱动
+		 *   MCUboot 的 flash_area_read/write/erase 通过 fa_dev
+		 *   自动路由到正确的驱动，无需手动区分设备。
+		 *
+		 *   Overwrite 模式关键路径:
+		 *     1. boot_read_image_headers() → flash_area_read(slot1) → SPI NOR 驱动
+		 *     2. bootutil_img_validate()   → flash_area_read(slot1) → SPI NOR 驱动
+		 *     3. boot_copy_region()        → read(slot1) + write(slot0) → 跨设备复制
+		 *     4. do_boot()                 → flash_device_base(slot0) → 内部 flash 跳转
+		 *   所有 I/O 操作通过 fa_dev 路由，跳转地址始终是内部 flash。
+		 *
+		 * 必要配置:
+		 *   1. CONFIG_SPI_NOR_FLASH_LAYOUT_PAGE_SIZE=4096
+		 *      W25Q16 最小擦除单位是 4KB，必须让驱动报告真实值，
+		 *      否则 boot_slots_compatible() 会因 64KB 不能整除 16KB 而失败
+		 *   2. CONFIG_BOOT_MAX_IMG_SECTORS=256
+		 *      slot1 有 512KB/4KB = 128 个扇区，需增大默认值
+		 *
+		 * MCUboot 编译命令:
+		 *   zephyrproject\bootloader\mcuboot\boot\zephyr> \
+		 *   west build -b stm32f4_devebox -d build_mcuboot -- \
+		 *     -DCONFIG_BOOT_UPGRADE_ONLY=y
+		 *   板级配置文件 boards/stm32f4_devebox.conf 会自动加载
+		 */
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 DT_SIZE_K(48)>;
+			read-only;
+		};
+		slot0_partition: partition@c000 {
+			label = "image-0";
+			reg = <0x0000C000 DT_SIZE_K(464)>;
+		};
+	};
+};
+
+
+/*
+ * DMA1 必须启用，因为 UART3 和 UART4 的 DMA 请求连接在 DMA1 上：
+ *   UART3_TX → DMA1 Stream3 Ch4    UART3_RX → DMA1 Stream1 Ch4
+ *   UART4_TX → DMA1 Stream4 Ch4    UART4_RX → DMA1 Stream2 Ch4
+ */
+&dma1 {
+	status = "okay";
+};
+
+&dma2 {
+	status = "okay";
+};
+
+&clk_lsi {
+	status = "okay";
+};
+
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(8)>;
+	status = "okay";
+};
+
+&pll {
+	div-m = <8>;
+	mul-n = <336>;
+	div-p = <2>;
+	div-q = <7>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(168)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <4>;
+	apb2-prescaler = <2>;
+};
+
+&usart1 {
+	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+&usart3 {
+	pinctrl-0 = <&usart3_tx_pb10 &usart3_rx_pb11>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	/*
+	 * Async API (DMA 模式) 需要 dmas:
+	 *   3 = DMA1 Stream 3 (TX),   4 = Channel 4 (USART3_TX 请求线)
+	 *   1 = DMA1 Stream 1 (RX),   4 = Channel 4 (USART3_RX 请求线)
+	 *   STM32_DMA_PERIPH_TX = MEM_TO_PERIPH | MEM_INC (默认 8-bit)
+	 *   STM32_DMA_PERIPH_RX = PERIPH_TO_MEM | MEM_INC (默认 8-bit)
+	 */
+	dmas = <&dma1 3 4 STM32_DMA_PERIPH_TX STM32_DMA_FIFO_FULL>,
+	       <&dma1 1 4 STM32_DMA_PERIPH_RX STM32_DMA_FIFO_FULL>;
+	dma-names = "tx", "rx";
+	status = "okay";
+
+	modbus0 {
+		compatible = "zephyr,modbus-serial";
+		status = "okay";
+		/* RS485 收发器需配置 DE 引脚，TTL 直连可省略 */
+		/* de-gpios = <&gpiox pin GPIO_ACTIVE_HIGH>; */
+	};
+};
+
+&uart4 {
+	pinctrl-0 = <&uart4_tx_pc10 &uart4_rx_pc11>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	/*
+	 * UART4 的 DMA 通道:
+	 *   4 = DMA1 Stream 4 (TX),   4 = Channel 4 (UART4_TX 请求线)
+	 *   2 = DMA1 Stream 2 (RX),   4 = Channel 4 (UART4_RX 请求线)
+	 */
+	dmas = <&dma1 4 4 STM32_DMA_PERIPH_TX STM32_DMA_FIFO_FULL>,
+	       <&dma1 2 4 STM32_DMA_PERIPH_RX STM32_DMA_FIFO_FULL>;
+	dma-names = "tx", "rx";
+	status = "okay";
+	modbus1 {
+		compatible = "zephyr,modbus-serial";
+		status = "okay";
+		/* RS485 收发器需配置 DE 引脚，TTL 直连可省略 */
+		/* de-gpios = <&gpiox pin GPIO_ACTIVE_HIGH>; */
+	};
+};
+
+&can1 {
+	pinctrl-0 = <&can1_tx_pa12 &can1_rx_pa11>;
+	pinctrl-names = "default";
+	bitrate = <125000>;
+	sample-point = <875>;
+	status = "okay";
+
+	can-transceiver {
+		max-bitrate = <1000000>;
+	};
+};
+
+/*
+ * I2C1 节点配置详解
+ *
+ * Q: pinctrl-0 和 pinctrl-names 是什么？为什么 I2C 必须配置？
+ *
+ * A: pinctrl (Pin Controller) 是 Zephyr 的引脚复用配置机制。
+ *    STM32 的每个引脚可以映射到多种外设功能（AF），必须显式指定。
+ *
+ *    pinctrl-0: 引用 pinctrl dtsi 中预定义的引脚配置节点
+ *    pinctrl-names: 为 pinctrl-0 起个名字，"default" 表示默认（也是唯一）配置
+ *
+ *    I2C 引脚必须配置的原因:
+ *    1. STM32 引脚默认是 GPIO 模式，不配置 pinctrl 则 I2C 信号无法输出到引脚
+ *    2. I2C 是开漏协议，必须设置 drive-open-drain（pinctrl dtsi 中已预设）
+ *    3. I2C 需要上拉电阻，pinctrl 中已设置 bias-pull-up（内部弱上拉，外部仍需上拉）
+ *
+ *    PB8 = I2C1_SCL (AF4), PB9 = I2C1_SDA (AF4)
+ *    这是 I2C1 的默认引脚，定义在 stm32f407v(e-g)tx-pinctrl.dtsi 中
+ *
+ * Q: clock-frequency 的选择？
+ *
+ * A: I2C 标准定义了三种速率:
+ *    I2C_BITRATE_STANDARD = 100 KHz  (标准模式, 默认值, 兼容性最好)
+ *    I2C_BITRATE_FAST     = 400 KHz  (快速模式, 大多数传感器支持)
+ *    I2C_BITRATE_FAST_PLUS = 1 MHz   (高速模式, 部分设备支持)
+ *
+ *    注意: 速率越高，信号完整性要求越高，线长越短。
+ *    面包板/杜邦线建议用 100KHz，PCB 短线可用 400KHz。
+ *
+ * Q: 总线上的设备子节点怎么写？
+ *
+ * A: I2C 总线设备子节点格式:
+ *    device_name: device@address {
+ *        compatible = "vendor,device";   // 匹配驱动
+ *        reg = <address>;               // 7位地址（不含R/W位）
+ *        label = "Friendly Name";       // 旧式标签（可选）
+ *    };
+ *
+ *    address 是 7 位地址（0x00~0x7F），不含最低位的 R/W 标志。
+ *    例如: 0x78 = 0b01111000，这是 7 位地址 0x3C 左移 1 位的结果
+ *    如果设备数据手册写的是 8 位地址 0x78，则 7 位地址 = 0x78 >> 1 = 0x3C
+ *
+ *    【重要】0x78 的两种解读:
+ *    - 如果 0x78 是 8 位写地址（最常见）: 7 位地址 = 0x78 >> 1 = 0x3C
+ *    - 如果 0x78 已经是 7 位地址（少见）: reg = <0x78>
+ *    大多数 I2C 设备数据手册给出的地址是包含 R/W 位的 8 位格式，
+ *    OLED SSD1306 的常见地址就是 0x3C（7位）或 0x78（8位写）。
+ */
+&i2c1 {
+	pinctrl-0 = <&i2c1_scl_pb8 &i2c1_sda_pb9>;
+	pinctrl-names = "default";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	status = "okay";
+
+	/*
+	 * SSD1306 OLED 显示屏 (128x64, I2C)
+	 *
+	 * compatible: "solomon,ssd1306" — 匹配 Zephyr 内置的 SSD1306 驱动
+	 *   驱动源码: zephyr/drivers/display/display_ssd1306.c
+	 *   DTS绑定: zephyr/dts/bindings/display/solomon,ssd1306-common.yaml
+	 *
+	 * 属性说明:
+	 *   reg              — 7 位 I2C 地址 (0x3C = 8位地址 0x78 >> 1)
+	 *   width/height     — 显示分辨率（像素）
+	 *   segment-offset   — 列起始偏移（Page 寻址模式下，0 表示从第 0 列开始）
+	 *   page-offset      — 页起始偏移（0 表示从第 0 页开始）
+	 *   display-offset   — 显示 RAM 到屏幕的行偏移（0 表示无偏移）
+	 *   multiplex-ratio  — 复用比 = height - 1（128x64 → 63, 128x32 → 31）
+	 *   prechargep       — 预充电周期 [高位:Phase2 低位:Phase1]，0x22 为典型值
+	 *   segment-remap    — 水平镜像（列地址 127 映射到 SEG0）
+	 *   com-invdir       — 垂直镜像（COM 扫描方向从 COM63 到 COM0）
+	 *
+	 * segment-remap + com-invdir 的组合效果:
+	 *   都不设: 正常方向（适合大多数模块的默认方向）
+	 *   都设置: 旋转 180°（如果显示内容上下颠倒，加这两个属性）
+	 *   只设一个: 水平或垂直镜像
+	 *
+	 * reset-gpios: 可选，硬件 RESET 引脚。如果你的模块没有连接 RESET 引脚
+	 *   （很多廉价模块直接把 RESET 拉高），可以省略此属性。
+	 *   驱动会使用软件复位命令代替。
+	 *
+	 * SSD1315 兼容性说明:
+	 *   SSD1315 是 SSD1306 的国产替代芯片，指令集高度兼容。
+	 *   大多数情况下 "solomon,ssd1306" 驱动可以直接驱动 SSD1315。
+	 *   如果显示异常，可能需要调整 prechargep 或对比度参数。
+	 */
+	ssd1306: ssd1306@3c {
+		compatible = "solomon,ssd1306";
+		reg = <0x3c>;
+		width = <128>;
+		height = <64>;
+		segment-offset = <0>;
+		page-offset = <0>;
+		display-offset = <0>;
+		multiplex-ratio = <63>;
+		prechargep = <0x22>;
+		segment-remap;
+		com-invdir;
+	};
+
+	/*
+	 * 通用 I2C 设备节点（保留用于 I2C 底层学习）
+	 *
+	 * 这个节点使用 "zephyr,i2c-device" 通用 compatible，不绑定任何专用驱动。
+	 * iic_board.c 中的 i2c_board_scan()、i2c_board_write_reg() 等底层 API
+	 * 使用此节点的地址进行 I2C 总线操作练习。
+	 *
+	 * 注意: SSD1306 和此节点共享同一个 I2C 地址 0x3C，它们是同一个物理设备。
+	 *   - 使用 Zephyr Display API 操作屏幕时，通过 ssd1306 节点
+	 *   - 学习 I2C 底层通信时，通过此节点（i2c_board_test 等）
+	 *   两者不要同时操作，否则可能产生总线冲突。
+	 */
+	i2c_device_0x78: i2cdev@3c {
+		compatible = "zephyr,i2c-device";
+		reg = <0x3C>;
+		label = "I2C_DEV_0x78";
+		/*
+		 * 默认禁用: 与 ssd1306 节点共享同一 I2C 地址 0x3C。
+		 * 启用 SSD1306 驱动时，两个节点同时 enabled 会导致驱动冲突。
+		 * 使用 iic_board 底层测试时，需要:
+		 *   1. 将此节点改为 status = "okay"
+		 *   2. 将 ssd1306 节点改为 status = "disabled"
+		 *   3. 重新编译
+		 */
+		status = "disabled";
+	};
+};
+
+/*
+ * &vref: 内部参考电压（VREFINT）监测器
+ *
+ * Q: 这个是什么？一定需要 okay 吗？
+ *
+ * A: vref 是 STM32 芯片内部的一个校准电压通道（ADC1 通道 17），
+ *    电压约 1.21V 且非常稳定。它不是外部引脚，而是芯片内部连接到
+ *    ADC 的专用信号。
+ *
+ *    用途:
+ *    1. adc_raw_to_millivolts() 内部用 vref 的值来计算实际 VDDA
+ *       因为 VDDA 不一定是精确的 3.3V（可能是 3.2~3.4V），通过
+ *       测量稳定的 VREFINT 可以反推真实的 VDDA 电压。
+ *
+ *       VDDA_real = VREFINT_cal / VREFINT_measured × VDDA_cal
+ *       (VREFINT_cal 出厂时校准值存储在 Flash OTP 区域)
+ *
+ *    2. 如果不启用 vref，adc_raw_to_millivolts() 假定 VDDA = 3.3V
+ *       精度会下降，但对于学习项目差异不大。
+ *
+ *    结论: 学习阶段不启用也可以（status = "disabled"），
+ *          但启用后 ADC 电压转换更精确。
+ */
+&vref {
+	status = "okay";
+};
+
+
+&plli2s {
+	/* Minimize audio clock error (with i2s mck-enabled) for all of:
+	 * - 22.05kHz / 16b, 24b or 32b
+	 * - 44.1kHz  / 16b, 24b or 32b
+	 * - 88.2kHz  / 16b or 24b
+	 * Note: because the PLLI2S is dependent on the main PLL, the latter
+	 *       should not be changed without checking impact on PLLI2S
+	 */
+	div-m = <8>;
+	mul-n = <271>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&timers3 {
+    status = "okay";
+    st,prescaler = <83>;
+
+    pwm3: pwm {
+        status = "okay";
+        pinctrl-0 = <&tim3_ch1_pa6 &tim3_ch2_pa7>;
+        pinctrl-names = "default";
+    };
+};
+
+/*
+ * ============================================================================
+ * ADC1 节点配置详解
+ * ============================================================================
+ *
+ * Q: #address-cells = <1>  这是什么？为什么是 1？
+ *
+ * A: #address-cells 指定子节点 reg 属性中"地址"部分占用的 cell 数量。
+ *    一个 cell 是 32 位整数。
+ *
+ *    #address-cells = <1> 意味着子节点的 reg = <地址>，只占 1 个 cell。
+ *    例如: channel@1 { reg = <1>; }  — 1 cell 的地址
+ *
+ *    如果是 #address-cells = <2>，则需要 2 个 cell:
+ *        somechild@1000,2000 { reg = <0x1000 0x2000>; }
+ *
+ *    常见值:
+ *    <1> 用于简单索引地址（通道号、端口号等）
+ *    <2> 用于 64 位地址（如 32 位处理器的 64 位外设地址）
+ *
+ * Q: #size-cells = <0>  这是什么？为什么是 0？
+ *
+ * A: #size-cells 指定子节点 reg 属性中"大小"部分占用的 cell 数量。
+ *
+ *    #size-cells = <0> 意味着子节点的 reg 只有"地址"没有"大小"。
+ *    channel@1 { reg = <1>; }     — 只有地址 1，无大小
+ *
+ *    #size-cells = <1>:
+ *    somenode@40000000 { reg = <0x40000000 0x400>; }  — 地址 + 大小
+ *
+ *    对于 ADC 通道，通道号 (1, 2, ...) 本身就是地址，没有"大小"概念，
+ *    所以 #size-cells = <0>。
+ *
+ * Q: dmas = <&dma2 0 0 (STM32_DMA_PERIPH_RX | STM32_DMA_16BITS) STM32_DMA_FIFO_FULL>;
+ *    定义了 dmas 可以不使用 dma 吗？参数什么含义？
+ *
+ * A: 可以！dmas 只是声明"我可以用 DMA"，是否实际启用取决于:
+ *    - Kconfig: CONFIG_DMA=y 且 CONFIG_ADC_STM32_DMA=y
+ *    - DTS: dma 控制器本身 status = "okay"
+ *    如果 Kconfig 没开，dmas 属性被编译进 DT 但驱动不会初始化 DMA。
+ *
+ *    4 个 cell 参数的含义 (st,stm32-dma-v1 的 #dma-cells = <4>):
+ *
+ *    Cell 0 (channel): 0  — DMA2 的流编号 (Stream 0)
+ *         STM32F4 有 2 个 DMA 控制器，每个 8 个 Stream (0~7)。
+ *         ADC1 可以使用 DMA2 Stream 0 或 Stream 4，这里选 Stream 0。
+ *
+ *    Cell 1 (slot):    0  — DMA 请求通道号 (Channel 0)
+ *         每个外设在 DMA 控制器上有一个固定的请求通道。
+ *         STM32F407 中 ADC1 的 DMA 请求连接到 DMA2 Channel 0。
+ *
+ *    Cell 2 (channel_config): (STM32_DMA_PERIPH_RX | STM32_DMA_16BITS)
+ *         STM32_DMA_PERIPH_RX = PERIPH_TO_MEMORY(方向:外设→内存) | MEM_INC(内存地址递增)
+ *         STM32_DMA_16BITS    = PERIPH_16BITS(外设数据16位宽) | MEM_16BITS(内存数据16位宽)
+ *         两者按位或组合成完整的通道配置位域。
+ *
+ *    Cell 3 (features): STM32_DMA_FIFO_FULL — FIFO 阈值全满
+ *         FIFO_THRESHOLD_1_4 = 0  (1/4 满触发传输)
+ *         FIFO_THRESHOLD_HALF = 1 (半满触发传输)
+ *         FIFO_THRESHOLD_3_4  = 2 (3/4 满触发传输)
+ *         FIFO_THRESHOLD_FULL = 3 (全满触发传输)
+ *         对于 ADC DMA，这个值影响不大，驱动会自动处理。
+ *
+ * Q: channel@1 中四个参数什么意思？和 adc.c 重复吗？
+ *
+ * A: DTS 中的属性声明硬件默认值，C 代码中的 adc_channel_cfg 是运行时配置。
+ *
+ *    两者关系:
+ *    DTS channel@1 定义了:
+ *      reg                     — 通道号 (1 = ADC_IN1)
+ *      zephyr,gain             — 默认增益
+ *      zephyr,reference        — 默认参考源
+ *      zephyr,acquisition-time — 默认采样时间
+ *      zephyr,resolution       — 默认分辨率
+ *
+ *    C 代码 adc_channel_setup() 时:
+ *      驱动先读取 DTS 的默认值，然后用 adc_channel_cfg 中的值覆盖。
+ *      如果 adc_channel_cfg 某字段未设置(值为 0)，则沿用 DTS 默认值。
+ *
+ *    所以 DTS 是"出厂默认值"，C 代码是"运行时覆盖"。
+ *    两者都写是为了: DTS 让硬件配置可见 + C 代码显式控制。
+ *    简单场景下只写 adc_channel_cfg 也能工作（驱动会用默认值填充）。
+ */
+&adc1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	pinctrl-0 = <&adc1_in1_pa1 &adc1_in2_pa2>;
+	pinctrl-names = "default";
+	st,adc-prescaler = <4>;
+	dmas = <&dma2 0 0 (STM32_DMA_PERIPH_RX | STM32_DMA_16BITS) STM32_DMA_FIFO_FULL>;
+	status = "okay";
+
+	channel@1 {
+		reg = <1>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+
+	channel@2 {
+		reg = <2>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+
+	channel@16 {
+		reg = <3>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+};
+
+&spi1 {
+	status = "okay";
+	pinctrl-0 = <&spi1_sck_pb3 &spi1_miso_pb4 &spi1_mosi_pb5>;
+	pinctrl-names = "default";
+	/* SPI1 外设时钟频率（APB2 经分频后的输入时钟） */
+	clock-frequency = <16000000>;
+	/*
+	 * CS 片选 GPIO 列表：
+	 *   子节点 reg=<0> 对应此列表的第 0 项，reg=<1> 对应第 1 项，以此类推
+	 *   GPIO_ACTIVE_LOW 表示 CS 低电平有效（W25Q16 的 /CS 引脚）
+	 *   如果硬件上 CS 直接连 GND（始终选中），jedec,spi-nor 驱动将无法正常工作，
+	 *   因为驱动需要在每次 SPI 事务之间拉高 CS 来分隔命令帧
+	 */
+	cs-gpios = <&gpiob 0 GPIO_ACTIVE_LOW>;//是数组来的
+
+	w25qxx: w25qxx@0 {
+		compatible = "jedec,spi-nor";
+		/* reg=<0> 对应 cs-gpios 列表第 0 项（PB0） */
+		reg = <0>;
+		/*
+		 * SPI 最大时钟频率：
+		 *   W25Q16 标准读模式最高 104 MHz，实际取 80 MHz 留余量
+		 */
+		spi-max-frequency = <80000000>;
+		label = "W25Q16";
+		/*
+		 * JEDEC ID：[制造商 类型 容量]
+		 *   ef = Winbond (华邦)
+		 *   40 = 内存类型
+		 *   15 = 16 Mbit 容量代码
+		 * 驱动初始化时会读取芯片的 JEDEC ID 与此值比对校验
+		 */
+		jedec-id = [ef 40 15];
+		/*
+		 * Flash 容量，单位为 bit：
+		 *   16777216 = 16 Mbit = 2 MB（W25Q16 的 "16" 指 16 Mbit）
+		 */
+		size = <16777216>;
+
+		/*
+		 * W25Q16 分区表（fixed-partitions）：
+		 *   将 2MB Flash 划分为多个逻辑分区，每个分区可独立使用
+		 *
+		 * slot1_partition 在外部 flash 上的工作原理:
+		 *   Zephyr flash_map 根据 DTS 自动为每个分区生成 flash_area 结构体，
+		 *   fa_dev 字段通过 DT_MTD_FROM_PARTITION() 宏自动解析:
+		 *     partition → fixed-partitions → w25qxx (jedec,spi-nor) → SPI NOR 驱动
+		 *   因此 slot1 的 fa_dev 指向 W25Q16 的 SPI NOR 驱动，
+		 *   MCUboot 通过 flash_area_read(slot1) 即可读取外部 flash 中的升级镜像。
+		 *
+		 */
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			lfs_partition: partition@0 {
+				label = "lfs";
+				reg = <0x00000000 0x00100000>; /* 前 1MB 给 LittleFS */
+			};
+
+			slot1_partition: partition@100000 {
+				label = "image-1";
+				reg = <0x00100000 0x00074000>; /* 464KB 给 MCUbot slot1 */
+			};
+
+			storage_partition: partition@174000 {
+				label = "storage";
+				reg = <0x00174000 0x0008c000>; /* 后 560KB 预留 */
+			};
+		};
+	};
+};
+
+/*
+ * 文件系统挂载表（fstab）：
+ *   在 DTS 中声明文件系统挂载参数，构建系统自动生成 fs_mount_t 结构体
+ *   应用代码通过 FS_FSTAB_DECLARE_ENTRY(DT_NODELABEL(lfs1)) 引用
+ *
+ * fstab 与传统手动 fs_mount() 的区别：
+ *   - fstab：DTS 声明 → 自动生成结构体 → automount 自动挂载，代码零行
+ *   - 手动：C 代码声明 fs_mount_t → 手动填充参数 → 手动调用 fs_mount()
+ *   fstab 是 Zephyr 4.x 推荐方式，参数与硬件配置集中管理在 DTS 中
+ */
+/ {
+	fstab {
+		compatible = "zephyr,fstab";
+
+		lfs1: lfs1 {
+			compatible = "zephyr,fstab,littlefs";
+			/* 挂载点路径：文件操作时使用此路径前缀，如 "/lfs1/config.txt" */
+			mount-point = "/lfs1";
+			/* 引用上面定义的 lfs_partition 分区 */
+			partition = <&lfs_partition>;
+			/*
+			 * automount：启动时自动挂载
+			 * 如果不设置，需要在应用代码中手动调用 fs_mount()
+			 */
+			automount;
+			/*
+			 * LittleFS 参数说明：
+			 *   read-size      : 最小读取粒度（字节），建议 ≥ 16
+			 *   prog-size      : 最小编程粒度（字节），建议 ≥ 16
+			 *   cache-size     : 读/写缓存大小（字节），越大性能越好，但占用更多 RAM
+			 *   lookahead-size : 前瞻缓冲区大小（字节），必须是 8 的倍数
+			 *   block-cycles   : 磨损均衡擦除周期，0=禁用磨损均衡
+			 *                    推荐 256~1024，值越大写入越快但磨损均衡越弱
+			 *
+			 * 这些参数影响 RAM 占用和性能，W25Q16 (2MB) 的推荐值：
+			 *   RAM 占用 ≈ cache-size * 2 + lookahead-size ≈ 64*2+32 = 160 字节
+			 */
+			read-size = <16>;
+			prog-size = <16>;
+			cache-size = <64>;
+			lookahead-size = <32>;
+			block-cycles = <512>;
+		};
+	};
+};

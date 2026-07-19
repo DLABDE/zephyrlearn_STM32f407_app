@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# =============================================================================
+# STM32F407VET6 DevEBox — Zephyr 默认配置
+# =============================================================================
+#
+# 本文件定义板级默认 Kconfig 选项，编译时作为初始配置。
+# 用户可通过 prj.conf 或 menuconfig 覆盖这些默认值。
+# =============================================================================
+
+# Enable MPU
+CONFIG_ARM_MPU=y
+
+# Enable HW stack protection
+CONFIG_HW_STACK_PROTECTION=y
+
+CONFIG_SERIAL=y
+
+# ---------------------------------------------------------------------------
+# 调试端口保持配置（关键！）
+# ---------------------------------------------------------------------------
+# 启用后，Zephyr 在启动时调用 LL_DBGMCU_EnableDBGStopMode()，
+# 保持 SWD 调试端口在 CPU Sleep/Stop 模式下仍然活跃。
+#
+# 【为什么需要这个选项？】
+# STM32 进入低功耗模式（Sleep/Stop）后，DBGMCU 默认会被关闭以节省功耗，
+# 导致 SWD 调试端口不可用。此时 ST-LINK 无法连接芯片，表现为：
+#   - "Error: Unable to get core ID"
+#   - "Error: No STM32 target found!"
+#   - 必须手动按复位键才能烧录
+#
+# 【影响范围】
+# 对于 STM32F4 系列，Zephyr 的 soc_config.c 会根据此选项决定：
+#   启用 → LL_DBGMCU_EnableDBGStopMode()   (调试端口保持活跃)
+#   禁用 → LL_DBGMCU_DisableDBGStopMode()  (低功耗时关闭调试端口)
+# 注意: STM32F1/L1 系列还会额外控制 DBGSleepMode 和 DBGStandbyMode。
+#
+# 【副作用】
+# 启用此选项会增加 Stop 模式下的功耗（内部振荡器保持活跃）。
+# 如果产品需要极致低功耗，应在发布版本中禁用此选项，
+# 并确保 ST-LINK 连接了 NRST 引脚以支持硬件复位烧录。
+#
+# 【其他相关选项】
+# CONFIG_DEBUG=y                    : 启用调试模式，会自动选中本选项
+# CONFIG_PM=y                       : 电源管理，与本选项有冲突警告
+# CONFIG_STM32_ENABLE_DEBUG_SLEEP_STOP=y : 本选项
+# ---------------------------------------------------------------------------
+CONFIG_STM32_ENABLE_DEBUG_SLEEP_STOP=y
+
+# console
+CONFIG_CONSOLE=y
+CONFIG_UART_CONSOLE=y
